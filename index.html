@@ -4,13 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <title>Market Glitch PRO – Share Edition</title>
+    <title>Market Glitch PRO – Fixed Logic</title>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
     <style>
         body { margin: 0; background: #000; color: #0f0; font-family: 'Courier New', monospace; overflow: hidden; touch-action: none; }
         canvas { display: block; margin: 0 auto; }
-        
-        /* Style für das Share-Icon (Über dem Spiel) */
         #share-btn {
             position: absolute;
             top: 20px;
@@ -26,16 +24,13 @@
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            z-index: 10; /* Immer oben */
+            z-index: 10;
             opacity: 0.6;
-            transition: opacity 0.2s;
         }
-        #share-btn:hover { opacity: 1; background: rgba(0, 255, 0, 0.2); }
     </style>
 </head>
 <body>
     <div id="share-btn" onclick="shareScore()">📤</div>
-    
     <div id="game-container"></div>
 
     <script>
@@ -57,7 +52,6 @@
         let activePosition = null; 
         let tradeEntryPrice = 0;
         
-        // Persistenz
         let balance = parseInt(localStorage.getItem('mg_balance')) || 1000;
         let level = parseInt(localStorage.getItem('mg_level')) || 1;
         let highScore = parseInt(localStorage.getItem('mg_highscore')) || 1000;
@@ -68,28 +62,25 @@
         function preload() {}
 
         function create() {
-            // UI Setup
             scoreText = this.add.text(20, 25, `BANK: $${balance}`, { fontSize: '20px', fill: '#0f0' });
             levelText = this.add.text(20, 50, `LVL ${level}: ${getMarketName()}`, { fontSize: '14px', fill: '#aaa' });
             highScoreText = this.add.text(20, 70, `BEST: $${highScore}`, { fontSize: '12px', fill: '#444' });
             
-            statusText = this.add.text(20, 110, 'WAITING FOR SIGNAL...', { fontSize: '14px', fill: '#666' });
+            statusText = this.add.text(20, 110, 'SCANNING MARKET...', { fontSize: '14px', fill: '#666' });
             livePnlText = this.add.text(180, 110, '', { fontSize: '20px', fontWeight: 'bold' });
 
             graph = this.add.graphics();
 
-            // INPUT: Links = Long, Rechts = Short
             this.input.on('pointerdown', (pointer) => {
-                // Verhindert Trade-Start, wenn man auf das Share-Icon klickt
                 if (pointer.x > 300 && pointer.y < 60) return; 
 
                 tradeEntryPrice = currentPrice;
                 if (pointer.x < 180) {
                     activePosition = 'long';
-                    statusText.setText('POSITION: LONG').setFill('#00ff00');
+                    statusText.setText('POS: LONG (Bet on UP)').setFill('#00ff00');
                 } else {
                     activePosition = 'short';
-                    statusText.setText('POSITION: SHORT').setFill('#ff0000');
+                    statusText.setText('POS: SHORT (Bet on DOWN)').setFill('#ff0000');
                 }
             });
 
@@ -97,7 +88,6 @@
                 if (activePosition) {
                     let pnl = calculatePnL();
                     balance += Math.round(pnl);
-                    
                     if (balance < 10) balance = 100; 
 
                     if (balance > highScore) {
@@ -106,27 +96,36 @@
                     }
 
                     level = Math.max(1, Math.floor(balance / 2000) + 1);
-                    
                     saveGame();
                     updateUI();
                     
                     activePosition = null;
                     livePnlText.setText('');
-                    statusText.setText('SCANNING...').setFill('#666');
+                    statusText.setText('SCANNING MARKET...').setFill('#666');
                 }
             });
+        }
+
+        function calculatePnL() {
+            if (!activePosition) return 0;
+            
+            // Logik-Korrektur:
+            // Wenn der Kurs steigt, wird currentPrice KLEINER (Phaser Koordinate).
+            // LONG Gewinn bei Steigen: (Start - Ende) -> (300 - 250) = +50
+            // SHORT Gewinn bei Fallen: (Ende - Start) -> (350 - 300) = +50
+            
+            let pnl = 0;
+            if (activePosition === 'long') {
+                pnl = (tradeEntryPrice - currentPrice); 
+            } else {
+                pnl = (currentPrice - tradeEntryPrice);
+            }
+            return pnl * getMultiplier();
         }
 
         function getMarketName() {
             const markets = ["Penny Stocks", "Blue Chips", "Forex", "Crypto", "Memecoins", "Deep Web"];
             return markets[Math.min(level - 1, markets.length - 1)];
-        }
-
-        function calculatePnL() {
-            if (!activePosition) return 0;
-            let priceDiff = tradeEntryPrice - currentPrice;
-            let pnl = (activePosition === 'long') ? -priceDiff : priceDiff;
-            return pnl * getMultiplier();
         }
 
         function saveGame() {
@@ -158,8 +157,8 @@
             }
 
             graph.clear();
-            graph.fillStyle(0x00ff00, 0.03); graph.fillRect(0, 0, 180, 640);
-            graph.fillStyle(0xff0000, 0.03); graph.fillRect(180, 0, 180, 640);
+            graph.fillStyle(0x00ff00, 0.03); graph.fillRect(0, 0, 180, 640); // Long Zone
+            graph.fillStyle(0xff0000, 0.03); graph.fillRect(180, 0, 180, 640); // Short Zone
 
             let currentPnl = calculatePnL();
             let lineColor = 0x00ccff; 
@@ -179,36 +178,16 @@
             graph.fillCircle(360, currentPrice, 6);
         }
 
-        // --- DIE SHARE FUNKTION ---
         function shareScore() {
             const market = getMarketName();
-            // Wir erstellen einen formatierten Textblock (Hacker-Style)
-            const shareText = `
-📈 **MARKET GLITCH PRO** 📈
-Mein aktueller Status:
+            const shareText = `📈 **MARKET GLITCH PRO** 📈\nCapital: $${balance}\nLevel: ${level} (${market})\n\nBeat me at: ${window.location.href}`.trim();
 
-💰 CAPITAL: $${balance}
-🏆 HIGH SCORE: $${highScore}
-🚀 LEVEL: ${level} (${market})
-
-Kannst du den Markt schlagen?
-Spiele jetzt kostenlos: ${window.location.href}
-            `.trim();
-
-            // Prüfen, ob der Browser die Web Share API unterstützt
             if (navigator.share) {
-                navigator.share({
-                    title: 'Mein Market Glitch Score',
-                    text: shareText,
-                    // url: window.location.href // Optional, falls der Text keine URL enthält
-                })
-                .then(() => console.log('Erfolgreich geteilt!'))
-                .catch((error) => console.log('Fehler beim Teilen:', error));
+                navigator.share({ title: 'Market Glitch Score', text: shareText })
+                .catch(console.error);
             } else {
-                // Fallback für Desktop-Browser (Kopieren in die Zwischenablage)
-                navigator.clipboard.writeText(shareText).then(() => {
-                    alert('Dein Score wurde in die Zwischenablage kopiert! Füge ihn einfach in WhatsApp/X ein.');
-                });
+                navigator.clipboard.writeText(shareText);
+                alert('Score copied to clipboard!');
             }
         }
     </script>
