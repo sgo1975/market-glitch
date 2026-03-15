@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Market Glitch – Corrected Logic</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
+    <style>
+        body { margin: 0; background: #000; color: #0f0; font-family: 'Courier New', monospace; overflow: hidden; touch-action: none; }
+        canvas { display: block; margin: 0 auto; }
+    </style>
+</head>
+<body>
+    <div id="game-container"></div>
+
+    <script>
+        const config = {
+            type: Phaser.AUTO,
+            width: 360,
+            height: 640,
+            backgroundColor: '#050505',
+            parent: 'game-container',
+            scene: { preload: preload, create: create, update: update }
+        };
+
+        const game = new Phaser.Game(config);
+
+        let graph, scoreText, statusText, livePnlText, levelText, highScoreText;
+        let points = [];
+        let currentPrice = 320; 
+        let trend = 0;      
+        let activePosition = null; 
+        let tradeEntryPrice = 0;
+        
+        let balance = parseInt(localStorage.getItem('mg_balance')) || 1000;
+        let level = parseInt(localStorage.getItem('mg_level')) || 1;
+        let highScore = parseInt(localStorage.getItem('mg_highscore')) || 1000;
+
+        const getVolatility = () => 1.5 + (level * 0.7);
+        const getMultiplier = () => 10 + (level * 5);
+
+        function preload() {}
+
+        function create() {
+            scoreText = this.add.text(20, 25, `BANK: $${balance}`, { fontSize: '20px', fill: '#0f0' });
+            levelText = this.add.text(20, 50, `LVL ${level}: ${getMarketName()}`, { fontSize: '14px', fill: '#aaa' });
+            highScoreText = this.add.text(20, 70, `BEST: $${highScore}`, { fontSize: '12px', fill: '#444' });
+            
+            statusText = this.add.text(20, 110, 'WAITING FOR SIGNAL...', { fontSize: '14px', fill: '#666' });
+            livePnlText = this.add.text(180, 110, '', { fontSize: '20px', fontWeight: 'bold' });
+
+            graph = this.add.graphics();
+
+            this.input.on('pointerdown', (pointer) => {
+                tradeEntryPrice = currentPrice;
+                if (pointer.x < 180) {
+                    activePosition = 'long';
+                    statusText.setText('POSITION: LONG').setFill('#00ff00');
+                } else {
+                    activePosition = 'short';
+                    statusText.setText('POSITION: SHORT').setFill('#ff0000');
+                }
+            });
+
+            this.input.on('pointerup', () => {
+                if (activePosition) {
+                    let pnl = calculatePnL();
+                    balance += Math.round(pnl);
+                    
+                    if (balance < 10) balance = 100; // Minimales Startkapital bei Pleite
+
+                    if (balance > highScore) {
+                        highScore = balance;
+                        localStorage.setItem('mg_highscore', highScore);
+                    }
+
+                    level = Math.max(1, Math.floor(balance / 2000) + 1);
+                    
+                    saveGame();
+                    updateUI();
+                    
+                    activePosition = null;
+                    livePnlText.setText('');
+                    statusText.setText('SCANNING...').setFill('#666');
+                }
+            });
+        }
+
+        function getMarketName() {
+            const markets = ["Penny Stocks", "Blue Chips", "Forex", "Crypto", "Memecoins", "Deep Web"];
+            return markets[Math.min(level - 1, markets.length - 1)];
+        }
+
+        function calculatePnL() {
+            if (!activePosition) return 0;
+            // WICHTIG: In Phaser ist Y=0 oben. 
+            // Höherer Kurs = kleineres Y.
+            // Tieferer Kurs = größeres Y.
+            let diff = tradeEntryPrice - currentPrice; 
+            
+            let pnl = 0;
+            if (activePosition === 'long') {
+                pnl = diff; // Wenn currentPrice < entryPrice (Graph steigt), ist diff positiv
+            } else {
+                pnl = -diff; // Wenn currentPrice > entryPrice (Graph fällt), ist -diff positiv
+            }
+            return pnl * getMultiplier();
+        }
+
+        function saveGame() {
+            localStorage.setItem('mg_balance', balance);
+            localStorage.setItem('mg_level', level);
+        }
+
+        function updateUI() {
+            scoreText.setText(`BANK: $${balance}`);
+            levelText.setText(`LVL ${level}: ${getMarketName()}`);
+            highScoreText.setText(`BEST: $${highScore}`);
+        }
+
+        function update() {
+            let vol = getVolatility();
+            trend += (Math.random() - 0.5) * 1.2; 
+            trend *= 0.94; 
+            currentPrice += trend + (Math.random() - 0.5) * vol;
+
+            if (currentPrice < 100) currentPrice = 100;
+            if (currentPrice > 580) currentPrice = 580;
+
+            points.push(currentPrice);
+            if (points.length > 60) points.shift();
+
+            if (activePosition) {
+                let pnl = Math.round(calculatePnL());
+                livePnlText.setText(`${pnl >= 0 ? '+' : ''}${pnl}$`).setFill(pnl >= 0 ? '#0f0' : '#f00');
+            }
+
+            graph.clear();
+            
+            // Steuerungshilfen
+            graph.fillStyle(0x00ff00, 0.03); graph.fillRect(0, 0, 180, 640);
+            graph.fillStyle(0xff0000, 0.03); graph.fillRect(180, 0, 180, 640);
+
+            let currentPnl = calculatePnL();
+            let lineColor = 0x00ccff; 
+            if (activePosition) {
+                lineColor = currentPnl >= 0 ? 0x00ff00 : 0xff0000;
+            }
+
+            graph.lineStyle(activePosition ? 4 : 2, lineColor, 1);
+            graph.beginPath();
+            points.forEach((p, idx) => {
+                let x = (idx / 59) * 360;
+                if (idx === 0) graph.moveTo(x, p); else graph.lineTo(x, p);
+            });
+            graph.strokePath();
+
+            graph.fillStyle(lineColor, 1);
+            graph.fillCircle(360, currentPrice, 6);
+        }
+    </script>
+</body>
+</html>
